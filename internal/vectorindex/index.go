@@ -11,7 +11,7 @@ import (
 
 const (
 	DefaultCategoryCount       = 100
-	DefaultSimilarityThreshold = 0.60
+	DefaultSimilarityThreshold = 0.59
 	DefaultEmbeddingDimension  = 768
 )
 
