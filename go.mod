@@ -1,0 +1,3 @@
+module github.com/mg52/vector-categorizer
+
+go 1.25.4
