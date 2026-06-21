@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -16,19 +15,27 @@ import (
 
 func main() {
 	addr := getenv("VECTOR_INDEX_ADDR", ":8090")
-	categoryCount := getenvInt("VECTOR_INDEX_CATEGORY_COUNT", vectorindex.DefaultCategoryCount)
-	threshold := getenvFloat("VECTOR_INDEX_SIMILARITY_THRESHOLD", vectorindex.DefaultSimilarityThreshold)
 	embedURL := getenv("VECTOR_INDEX_EMBED_URL", vectorindex.DefaultEmbedURL)
 	embedModel := getenv("VECTOR_INDEX_EMBED_MODEL", vectorindex.DefaultEmbedModel)
+	categoriesFile := getenv("VECTOR_INDEX_CATEGORIES_FILE", "categories.txt")
+
+	categories, err := vectorindex.ParseCategoriesFile(categoriesFile)
+	if err != nil {
+		log.Fatalf("load categories from %s: %v", categoriesFile, err)
+	}
+	log.Printf("Loaded %d categories from %s", len(categories), categoriesFile)
 
 	embedder := vectorindex.NewEmbedClient(embedURL, embedModel)
-	indexer, err := vectorindex.NewIndexer(embedder, categoryCount, threshold)
+
+	ctx := context.Background()
+	categorizer, err := vectorindex.NewCategorizer(ctx, embedder, categories)
 	if err != nil {
-		log.Fatalf("create indexer: %v", err)
+		log.Fatalf("create categorizer: %v", err)
 	}
+	log.Printf("Categories ready: %v", categorizer.CategoryNames())
 
 	mux := http.NewServeMux()
-	vectorindex.NewHTTP(indexer).Register(mux)
+	vectorindex.NewHTTP(categorizer).Register(mux)
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -38,8 +45,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("Starting vector index service on %s", addr)
-		log.Printf("Categories=%d threshold=%.4f embed=%s model=%s", categoryCount, threshold, embedURL, embedModel)
+		log.Printf("Starting vector categorizer on %s (embed=%s model=%s)", addr, embedURL, embedModel)
 		errCh <- srv.ListenAndServe()
 	}()
 
@@ -55,41 +61,14 @@ func main() {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	_ = srv.Shutdown(shutdownCtx)
 }
 
 func getenv(name, fallback string) string {
-	value := os.Getenv(name)
-	if value == "" {
-		return fallback
+	if v := os.Getenv(name); v != "" {
+		return v
 	}
-	return value
-}
-
-func getenvInt(name string, fallback int) int {
-	value := os.Getenv(name)
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		log.Printf("Invalid %s=%q, using %d", name, value, fallback)
-		return fallback
-	}
-	return parsed
-}
-
-func getenvFloat(name string, fallback float64) float64 {
-	value := os.Getenv(name)
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		log.Printf("Invalid %s=%q, using %.4f", name, value, fallback)
-		return fallback
-	}
-	return parsed
+	return fallback
 }

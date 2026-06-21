@@ -1,0 +1,23 @@
+# Vector Categorizer - Predefined Categories
+# Format: category-name: description text used for embedding
+# The description should be keywords or phrases that represent the category well.
+
+food-recipe: food, recipe, cooking, meal, lunch, dinner, breakfast, ingredients, kitchen, dish, meat, vegetable, bake, cuisine, flavor, snack, restaurant, chef, yemek, tarif, pişirme, malzeme, mutfak, öğle yemeği, akşam yemeği, kahvaltı, et, sebze, lezzet, yemek tarifi, domates, makarna, tavuk
+
+travel: trip, journey, destination, city, culture, vacation, tourist, hotel, flight, abroad, explore, sightseeing, passport, adventure, country, landmark, seyahat, gezi, tatil, şehir, kültür, otel, uçuş, yurt dışı, keşfetmek, turistik, pasaport, macera, ülke, konaklama, rehber
+
+sports: football, basketball, tennis, running, exercise, athlete, match, competition, fitness, team, score, training, gym, swimming, cycling, championship, futbol, basketbol, tenis, koşu, egzersiz, sporcu, maç, yarışma, takım, skor, antrenman, spor salonu, yüzme, şampiyona, stadyum
+
+technology: software, computer, programming, code, internet, app, mobile, digital, data, artificial intelligence, machine learning, cloud, network, cybersecurity, yazılım, bilgisayar, programlama, kod, internet, uygulama, mobil, dijital, yapay zeka, makine öğrenmesi, bulut, ağ, siber güvenlik, geliştirici, algoritma, veritabanı
+
+health: doctor, medicine, hospital, disease, wellness, therapy, mental health, nutrition, treatment, symptoms, pharmacy, diagnosis, surgery, vaccination, doktor, ilaç, hastane, hastalık, sağlık, terapi, mental sağlık, beslenme, tedavi, belirti, eczane, teşhis, ameliyat, aşı, sağlıklı yaşam, klinik
+
+fashion: clothing, style, outfit, dress, shoes, accessories, trend, designer, wardrobe, fabric, brand, jewelry, cosmetics, beauty, skincare, kıyafet, stil, kıyafet kombinasyonu, elbise, ayakkabı, aksesuar, trend, tasarımcı, gardırop, kumaş, marka, takı, kozmetik, güzellik, cilt bakımı
+
+music: song, concert, band, album, lyrics, instrument, melody, rhythm, artist, genre, streaming, playlist, composer, singer, guitar, piano, festival, şarkı, konser, grup, albüm, sözler, enstrüman, melodi, ritim, sanatçı, müzik türü, şarkıcı, gitar, piyano, müzik festivali, bestekar
+
+movies: film, cinema, actor, director, plot, screenplay, trailer, genre, entertainment, series, episode, streaming, review, animation, documentary, blockbuster, film, sinema, oyuncu, yönetmen, senaryo, fragman, dizi, bölüm, izleme, inceleme, animasyon, belgesel, gişe rekortmeni, yapım
+
+business: company, market, profit, revenue, investment, startup, strategy, management, finance, entrepreneur, sales, economy, marketing, şirket, pazar, kâr, gelir, yatırım, girişim, strateji, yönetim, finans, girişimci, satış, ekonomi, pazarlama, marka, hisse senedi, liderlik
+
+education: school, university, learning, course, teacher, student, knowledge, exam, degree, curriculum, research, scholarship, lecture, okul, üniversite, öğrenmek, ders, öğretmen, öğrenci, bilgi, sınav, derece, müfredat, araştırma, burs, ders notu, mezuniyet, kampüs, bilim

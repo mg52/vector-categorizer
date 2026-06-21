@@ -1,165 +1,151 @@
 # Vector Categorizer
 
-Vector Categorizer is a small HTTP service that turns text documents into embeddings and groups them by category centroids.
+A lightweight HTTP service that classifies text into predefined categories using vector embeddings and cosine similarity.
 
-It supports two modes:
-
-- **Supervised category mode:** if a document has a `category`, the service groups it under that category and updates that category centroid.
-- **Automatic clustering mode:** if a document has no `category`, the service assigns it to the nearest existing centroid when similarity is high enough, otherwise it seeds an empty category slot.
-
-The service uses a configurable embedding API. By default it expects a `/api/embed` response shape with an `embeddings` array and the `nomic-embed-text` model.
+At startup, the service reads `categories.txt`, embeds each category description via Ollama, and stores the resulting vectors. Incoming text is embedded on demand and matched against those stored vectors — the closest category wins.
 
 ## How It Works
 
-1. A document is sent to the service.
-2. The service calls the configured embedding API and converts the text into an embedding vector.
-3. The vector is normalized.
-4. If the request includes `category`, that category's centroid is updated.
-5. If the request does not include `category`, the vector is compared with existing category centroids using cosine similarity.
-6. The selected category centroid is updated with incremental average:
+1. On startup: each category description in `categories.txt` is embedded and normalized.
+2. On request: the query text is embedded and normalized.
+3. Cosine similarity is computed against every category vector.
+4. The category with the highest similarity is returned, along with its similarity score and distance (`1 - similarity`).
 
-```text
-newCentroid = ((oldCentroid * documentCount) + newVector) / (documentCount + 1)
+## categories.txt Format
+
+```
+# Lines starting with # are ignored
+food-recipe: food, recipe, cooking, meal, lunch, dinner, ingredients
+travel: trip, journey, destination, city, vacation, hotel, flight
 ```
 
-The service does not recalculate old documents when updating a centroid.
+Each line: `category-name: description text used for embedding`
+
+Edit this file to add, remove, or tune categories. The service must be restarted to pick up changes.
 
 ## Local Setup
 
-### 1. Start An Embedding Provider
+### 1. Start Ollama
 
-Make sure your embedding endpoint is available at:
+The service needs an Ollama instance running with `nomic-embed-text` available.
 
-```text
-http://localhost:11434/api/embed
-```
-
-Prepare the embedding model in your provider:
+**Option A — Docker (recommended):**
 
 ```bash
-nomic-embed-text
+docker run -d --name ollama -p 11434:11434 ollama/ollama
+docker exec ollama ollama pull nomic-embed-text
 ```
 
-If you are using Docker, expose your embedding provider on port `11434` or override the URL with `VECTOR_INDEX_EMBED_URL`.
-
-### 2. Run The Service
+**Option B — Local Ollama install:**
 
 ```bash
-cd /Users/mustafagordesli/Documents/GoProjects/vector-categorizer
+ollama pull nomic-embed-text
+```
+
+Verify it's working:
+
+```bash
+curl http://localhost:11434/api/tags
+```
+
+### 2. Run the Service
+
+```bash
 go run ./cmd
 ```
 
-By default the service starts on:
+The service starts on `http://localhost:8090` by default and logs the loaded categories.
 
-```text
-http://localhost:8090
-```
+### 3. Environment Variables
 
-### 3. Optional Configuration
+| Variable | Default | Description |
+|---|---|---|
+| `VECTOR_INDEX_ADDR` | `:8090` | Listen address |
+| `VECTOR_INDEX_EMBED_URL` | `http://localhost:11434/api/embed` | Ollama embed endpoint |
+| `VECTOR_INDEX_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
+| `VECTOR_INDEX_CATEGORIES_FILE` | `categories.txt` | Path to categories file |
+
+Example with overrides:
 
 ```bash
-VECTOR_INDEX_ADDR=:8090 \
-VECTOR_INDEX_CATEGORY_COUNT=100 \
-VECTOR_INDEX_SIMILARITY_THRESHOLD=0.60 \
-VECTOR_INDEX_EMBED_URL=http://localhost:11434/api/embed \
-VECTOR_INDEX_EMBED_MODEL=nomic-embed-text \
+VECTOR_INDEX_ADDR=:9000 \
+VECTOR_INDEX_EMBED_URL=http://my-ollama:11434/api/embed \
 go run ./cmd
 ```
 
 ## Endpoints
 
-### Health
+### Categorize Text
+
+```bash
+curl -s -X POST http://localhost:8090/categorize \
+  -H "Content-Type: application/json" \
+  -d '{"text": "I want to cook pasta with tomato sauce for dinner"}'
+```
+
+Response:
+
+```json
+{
+  "category": "food-recipe",
+  "similarity": 0.5457,
+  "distance": 0.4543
+}
+```
+
+Also accepts a plain text body (no `Content-Type` header needed):
+
+```bash
+curl -s -X POST http://localhost:8090/categorize \
+  --data "planning a trip to Paris next summer"
+```
+
+### List Categories
+
+```bash
+curl -s http://localhost:8090/categories
+```
+
+Response:
+
+```json
+{
+  "categories": ["food-recipe", "travel", "sports", "technology", "health", "fashion", "music", "movies", "business", "education"]
+}
+```
+
+### Health Check
 
 ```bash
 curl -s http://localhost:8090/health
 ```
 
-### Batch Index With Categories
-
-This is the recommended mode when you already know the category labels.
-
-```bash
-curl -s http://localhost:8090/index/batch \
-  -H "Content-Type: application/json" \
-  -d '{
-    "documents": [
-      {"id": "doc-1", "text": "Wireless Bluetooth headphones", "category": "audio"},
-      {"id": "doc-2", "text": "Noise cancelling studio headset", "category": "audio"},
-      {"id": "doc-3", "text": "Lightweight waterproof hiking jacket", "category": "outdoor"},
-      {"id": "doc-4", "text": "Insulated snowproof winter parka", "category": "outdoor"}
-    ]
-  }'
-```
-
-The response includes the assigned category, category ID, similarity, and current category document count.
-
-### Predict Category
-
-After indexing category-labeled documents, use `/index/search` to predict the closest category for a new text.
-
-```bash
-curl -s http://localhost:8090/index/search \
-  -H "Content-Type: application/json" \
-  -d '{"text":"ear worn sound device for listening to songs"}'
-```
-
-Example response:
-
-```json
-{
-  "categoryID": 0,
-  "category": "audio",
-  "similarity": 0.73,
-  "aboveThreshold": true,
-  "categoryDocumentCount": 2
-}
-```
-
-### Single Index
-
-```bash
-curl -s http://localhost:8090/index \
-  -H "Content-Type: application/json" \
-  -d '{"id":"doc-5","text":"Portable waterproof speaker","category":"audio"}'
-```
-
-### Categories
-
-```bash
-curl -s "http://localhost:8090/categories"
-```
-
-Include centroid vectors:
-
-```bash
-curl -s "http://localhost:8090/categories?centroids=true"
-```
-
-### Document Category
-
-```bash
-curl -s "http://localhost:8090/document-category?id=doc-1"
-```
-
 ## Run Tests
 
+Unit tests use a fake embedder — no Ollama needed:
+
 ```bash
-cd /Users/mustafagordesli/Documents/GoProjects/vector-categorizer
 go test ./...
+```
+
+With verbose output:
+
+```bash
+go test ./... -v
 ```
 
 ## Build
 
 ```bash
-cd /Users/mustafagordesli/Documents/GoProjects/vector-categorizer
-go build ./cmd
-```
-
-This creates a local binary named `cmd` unless you pass `-o`.
-
-Example:
-
-```bash
 go build -o vector-categorizer ./cmd
 ./vector-categorizer
+```
+
+## Docker Build
+
+```bash
+docker build -t vector-categorizer .
+docker run --rm -p 8090:8090 \
+  -e VECTOR_INDEX_EMBED_URL=http://host.docker.internal:11434/api/embed \
+  vector-categorizer
 ```
