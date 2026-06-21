@@ -1,4 +1,4 @@
-package vectorindex
+package handler
 
 import (
 	"encoding/json"
@@ -6,10 +6,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/mg52/vector-categorizer/internal/categorizer"
 )
 
 type HTTP struct {
-	categorizer *Categorizer
+	categorizer *categorizer.Categorizer
 }
 
 type CategorizeRequest struct {
@@ -20,8 +22,8 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewHTTP(categorizer *Categorizer) *HTTP {
-	return &HTTP{categorizer: categorizer}
+func NewHTTP(c *categorizer.Categorizer) *HTTP {
+	return &HTTP{categorizer: c}
 }
 
 func (h *HTTP) Register(mux *http.ServeMux) {

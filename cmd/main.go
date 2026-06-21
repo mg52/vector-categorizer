@@ -10,7 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mg52/vector-categorizer/internal/vectorindex"
+	"github.com/mg52/vector-categorizer/internal/categorizer"
+	"github.com/mg52/vector-categorizer/internal/handler"
 )
 
 func main() {
@@ -18,7 +19,7 @@ func main() {
 	categoriesFile := getenv("VECTOR_INDEX_CATEGORIES_FILE", "categories.txt")
 	provider := getenv("VECTOR_INDEX_EMBED_PROVIDER", "ollama") // "ollama" or "openai"
 
-	categories, err := vectorindex.ParseCategoriesFile(categoriesFile)
+	categories, err := categorizer.ParseCategoriesFile(categoriesFile)
 	if err != nil {
 		log.Fatalf("load categories from %s: %v", categoriesFile, err)
 	}
@@ -27,14 +28,14 @@ func main() {
 	embedder := buildEmbedder(provider)
 
 	ctx := context.Background()
-	categorizer, err := vectorindex.NewCategorizer(ctx, embedder, categories)
+	c, err := categorizer.NewCategorizer(ctx, embedder, categories)
 	if err != nil {
 		log.Fatalf("create categorizer: %v", err)
 	}
-	log.Printf("Categories ready: %v", categorizer.CategoryNames())
+	log.Printf("Categories ready: %v", c.CategoryNames())
 
 	mux := http.NewServeMux()
-	vectorindex.NewHTTP(categorizer).Register(mux)
+	handler.NewHTTP(c).Register(mux)
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -65,23 +66,23 @@ func main() {
 	_ = srv.Shutdown(shutdownCtx)
 }
 
-func buildEmbedder(provider string) vectorindex.Embedder {
+func buildEmbedder(provider string) categorizer.Embedder {
 	switch provider {
 	case "openai":
 		apiKey := os.Getenv("OPENAI_API_KEY")
 		if apiKey == "" {
 			log.Fatalf("OPENAI_API_KEY is required when VECTOR_INDEX_EMBED_PROVIDER=openai")
 		}
-		model := getenv("VECTOR_INDEX_EMBED_MODEL", vectorindex.DefaultOpenAIEmbedModel)
-		url := getenv("VECTOR_INDEX_EMBED_URL", vectorindex.DefaultOpenAIEmbedURL)
-		client := vectorindex.NewOpenAIEmbedClient(apiKey, model, url)
+		model := getenv("VECTOR_INDEX_EMBED_MODEL", categorizer.DefaultOpenAIEmbedModel)
+		url := getenv("VECTOR_INDEX_EMBED_URL", categorizer.DefaultOpenAIEmbedURL)
+		client := categorizer.NewOpenAIEmbedClient(apiKey, model, url)
 		log.Printf("Using OpenAI embedder (url=%s model=%s)", client.URL, model)
 		return client
 	default: // "ollama"
-		url := getenv("VECTOR_INDEX_EMBED_URL", vectorindex.DefaultEmbedURL)
-		model := getenv("VECTOR_INDEX_EMBED_MODEL", vectorindex.DefaultEmbedModel)
+		url := getenv("VECTOR_INDEX_EMBED_URL", categorizer.DefaultEmbedURL)
+		model := getenv("VECTOR_INDEX_EMBED_MODEL", categorizer.DefaultEmbedModel)
 		log.Printf("Using Ollama embedder (url=%s model=%s)", url, model)
-		return vectorindex.NewEmbedClient(url, model)
+		return categorizer.NewEmbedClient(url, model)
 	}
 }
 

@@ -1,4 +1,4 @@
-package vectorindex
+package categorizer
 
 import (
 	"context"

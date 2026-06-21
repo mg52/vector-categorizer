@@ -1,27 +1,91 @@
-package vectorindex
+package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/mg52/vector-categorizer/internal/categorizer"
 )
 
+// fakeEmbedder maps text → vector, implements both Embedder and BatchEmbedder.
+type fakeEmbedder map[string][]float64
+
+func (f fakeEmbedder) Embed(_ context.Context, text string) ([]float64, error) {
+	vec, ok := f[text]
+	if !ok {
+		return nil, fmt.Errorf("no embedding for %q", text)
+	}
+	return append([]float64(nil), vec...), nil
+}
+
+func (f fakeEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float64, error) {
+	vecs := make([][]float64, len(texts))
+	for i, text := range texts {
+		vec, err := f.Embed(ctx, text)
+		if err != nil {
+			return nil, err
+		}
+		vecs[i] = vec
+	}
+	return vecs, nil
+}
+
+const (
+	foodDesc   = "food, cooking, recipe"
+	travelDesc = "travel, trip, journey"
+	sportsDesc = "sports, exercise, fitness"
+)
+
+var testCategories = map[string]string{
+	"food":   foodDesc,
+	"travel": travelDesc,
+	"sports": sportsDesc,
+}
+
+var testEmbedder = fakeEmbedder{
+	foodDesc:   {1, 0, 0},
+	travelDesc: {0, 1, 0},
+	sportsDesc: {0, 0, 1},
+	// query texts
+	"pasta recipe dinner": {0.9, 0.1, 0},
+	"hotel booking Paris": {0.1, 0.9, 0},
+}
+
+func newTestCategorizer(t *testing.T) *categorizer.Categorizer {
+	t.Helper()
+	c, err := categorizer.NewCategorizer(context.Background(), testEmbedder, testCategories)
+	if err != nil {
+		t.Fatalf("NewCategorizer: %v", err)
+	}
+	return c
+}
+
+func absFloat(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 func TestCategorizeEndpointJSONBody(t *testing.T) {
-	handler := NewHTTP(newTestCategorizer(t))
+	h := NewHTTP(newTestCategorizer(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/categorize", bytes.NewBufferString(`{"text":"pasta recipe dinner"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
-	handler.Categorize(rec, req)
+	h.Categorize(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status mismatch: got=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var result CategorizeResult
+	var result categorizer.CategorizeResult
 	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -37,17 +101,17 @@ func TestCategorizeEndpointJSONBody(t *testing.T) {
 }
 
 func TestCategorizeEndpointRawBody(t *testing.T) {
-	handler := NewHTTP(newTestCategorizer(t))
+	h := NewHTTP(newTestCategorizer(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/categorize", strings.NewReader("hotel booking Paris"))
 	rec := httptest.NewRecorder()
 
-	handler.Categorize(rec, req)
+	h.Categorize(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status mismatch: got=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var result CategorizeResult
+	var result categorizer.CategorizeResult
 	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -57,7 +121,7 @@ func TestCategorizeEndpointRawBody(t *testing.T) {
 }
 
 func TestCategorizeRejectsBadRequests(t *testing.T) {
-	handler := NewHTTP(newTestCategorizer(t))
+	h := NewHTTP(newTestCategorizer(t))
 
 	tests := []struct {
 		name   string
@@ -74,7 +138,7 @@ func TestCategorizeRejectsBadRequests(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/categorize", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", tt.header)
 			rec := httptest.NewRecorder()
-			handler.Categorize(rec, req)
+			h.Categorize(rec, req)
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("status mismatch: got=%d body=%s", rec.Code, rec.Body.String())
 			}
@@ -83,12 +147,12 @@ func TestCategorizeRejectsBadRequests(t *testing.T) {
 }
 
 func TestCategoriesEndpoint(t *testing.T) {
-	handler := NewHTTP(newTestCategorizer(t))
+	h := NewHTTP(newTestCategorizer(t))
 
 	req := httptest.NewRequest(http.MethodGet, "/categories", nil)
 	rec := httptest.NewRecorder()
 
-	handler.Categories(rec, req)
+	h.Categories(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status mismatch: got=%d body=%s", rec.Code, rec.Body.String())
@@ -105,12 +169,12 @@ func TestCategoriesEndpoint(t *testing.T) {
 }
 
 func TestHealthEndpoint(t *testing.T) {
-	handler := NewHTTP(newTestCategorizer(t))
+	h := NewHTTP(newTestCategorizer(t))
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 
-	handler.Health(rec, req)
+	h.Health(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status mismatch: got=%d body=%s", rec.Code, rec.Body.String())
@@ -134,7 +198,7 @@ func TestRegisterRoutesAndHealth(t *testing.T) {
 }
 
 func TestHandlersRejectWrongMethods(t *testing.T) {
-	handler := NewHTTP(newTestCategorizer(t))
+	h := NewHTTP(newTestCategorizer(t))
 
 	tests := []struct {
 		name    string
@@ -142,9 +206,9 @@ func TestHandlersRejectWrongMethods(t *testing.T) {
 		target  string
 		handler http.HandlerFunc
 	}{
-		{name: "categorize GET", method: http.MethodGet, target: "/categorize", handler: handler.Categorize},
-		{name: "categories POST", method: http.MethodPost, target: "/categories", handler: handler.Categories},
-		{name: "health POST", method: http.MethodPost, target: "/health", handler: handler.Health},
+		{name: "categorize GET", method: http.MethodGet, target: "/categorize", handler: h.Categorize},
+		{name: "categories POST", method: http.MethodPost, target: "/categories", handler: h.Categories},
+		{name: "health POST", method: http.MethodPost, target: "/health", handler: h.Health},
 	}
 
 	for _, tt := range tests {
@@ -160,12 +224,11 @@ func TestHandlersRejectWrongMethods(t *testing.T) {
 }
 
 func TestCategorizeInternalError(t *testing.T) {
-	handler := NewHTTP(newTestCategorizer(t))
+	h := NewHTTP(newTestCategorizer(t))
 
-	// text with no embedding in fakeEmbedder → Categorize returns error → 500
 	req := httptest.NewRequest(http.MethodPost, "/categorize", strings.NewReader("unknown text with no embedding"))
 	rec := httptest.NewRecorder()
-	handler.Categorize(rec, req)
+	h.Categorize(rec, req)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
 	}
