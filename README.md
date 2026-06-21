@@ -2,7 +2,7 @@
 
 A lightweight HTTP service that classifies text into predefined categories using vector embeddings and cosine similarity.
 
-At startup, the service reads `categories.txt`, embeds each category description via Ollama, and stores the resulting vectors. Incoming text is embedded on demand and matched against those stored vectors — the closest category wins.
+At startup, the service reads `categories.txt`, embeds each category description via the configured provider, and stores the resulting vectors. Incoming text is embedded on demand and matched against those stored vectors — the closest category wins.
 
 ## How It Works
 
@@ -23,55 +23,74 @@ Each line: `category-name: description text used for embedding`
 
 Edit this file to add, remove, or tune categories. The service must be restarted to pick up changes.
 
-## Local Setup
+## Embedding Providers
 
-### 1. Start Ollama
+The service supports multiple embedding providers via `VECTOR_INDEX_EMBED_PROVIDER`.
 
-The service needs an Ollama instance running with `nomic-embed-text` available.
+### Ollama (default)
 
-**Option A — Docker (recommended):**
+Requires a running Ollama instance with `nomic-embed-text` pulled.
 
+**Docker:**
 ```bash
 docker run -d --name ollama -p 11434:11434 ollama/ollama
 docker exec ollama ollama pull nomic-embed-text
 ```
 
-**Option B — Local Ollama install:**
-
+**Local:**
 ```bash
 ollama pull nomic-embed-text
 ```
 
-Verify it's working:
-
-```bash
-curl http://localhost:11434/api/tags
-```
-
-### 2. Run the Service
-
 ```bash
 go run ./cmd
 ```
 
-The service starts on `http://localhost:8090` by default and logs the loaded categories.
+### OpenAI
 
-### 3. Environment Variables
+```bash
+VECTOR_INDEX_EMBED_PROVIDER=openai \
+OPENAI_API_KEY=sk-... \
+go run ./cmd
+```
+
+Default model is `text-embedding-3-small`. To use a different model:
+
+```bash
+VECTOR_INDEX_EMBED_PROVIDER=openai \
+OPENAI_API_KEY=sk-... \
+VECTOR_INDEX_EMBED_MODEL=text-embedding-3-large \
+go run ./cmd
+```
+
+### Adding a Custom Provider
+
+Implement the `Embedder` interface in `internal/vectorindex` and wire it in `cmd/main.go`:
+
+```go
+type Embedder interface {
+    Embed(ctx context.Context, text string) ([]float64, error)
+}
+```
+
+Optionally also implement `BatchEmbedder` for more efficient bulk embedding at startup:
+
+```go
+type BatchEmbedder interface {
+    EmbedBatch(ctx context.Context, texts []string) ([][]float64, error)
+}
+```
+
+## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
 | `VECTOR_INDEX_ADDR` | `:8090` | Listen address |
+| `VECTOR_INDEX_EMBED_PROVIDER` | `ollama` | Embedding provider (`ollama` or `openai`) |
 | `VECTOR_INDEX_EMBED_URL` | `http://localhost:11434/api/embed` | Ollama embed endpoint |
-| `VECTOR_INDEX_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
+| `VECTOR_INDEX_EMBED_MODEL` | `nomic-embed-text` / `text-embedding-3-small` | Embedding model (default depends on provider) |
 | `VECTOR_INDEX_CATEGORIES_FILE` | `categories.txt` | Path to categories file |
-
-Example with overrides:
-
-```bash
-VECTOR_INDEX_ADDR=:9000 \
-VECTOR_INDEX_EMBED_URL=http://my-ollama:11434/api/embed \
-go run ./cmd
-```
+| `OPENAI_API_KEY` | — | Required when provider is `openai` |
 
 ## Endpoints
 
@@ -93,7 +112,7 @@ Response:
 }
 ```
 
-Also accepts a plain text body (no `Content-Type` header needed):
+Also accepts a plain text body:
 
 ```bash
 curl -s -X POST http://localhost:8090/categorize \
@@ -106,14 +125,6 @@ curl -s -X POST http://localhost:8090/categorize \
 curl -s http://localhost:8090/categories
 ```
 
-Response:
-
-```json
-{
-  "categories": ["food-recipe", "travel", "sports", "technology", "health", "fashion", "music", "movies", "business", "education"]
-}
-```
-
 ### Health Check
 
 ```bash
@@ -122,16 +133,10 @@ curl -s http://localhost:8090/health
 
 ## Run Tests
 
-Unit tests use a fake embedder — no Ollama needed:
+Unit tests use a fake embedder — no external dependency needed:
 
 ```bash
 go test ./...
-```
-
-With verbose output:
-
-```bash
-go test ./... -v
 ```
 
 ## Build
@@ -141,11 +146,19 @@ go build -o vector-categorizer ./cmd
 ./vector-categorizer
 ```
 
-## Docker Build
+## Docker
 
 ```bash
 docker build -t vector-categorizer .
+
+# with Ollama
 docker run --rm -p 8090:8090 \
   -e VECTOR_INDEX_EMBED_URL=http://host.docker.internal:11434/api/embed \
+  vector-categorizer
+
+# with OpenAI
+docker run --rm -p 8090:8090 \
+  -e VECTOR_INDEX_EMBED_PROVIDER=openai \
+  -e OPENAI_API_KEY=sk-... \
   vector-categorizer
 ```

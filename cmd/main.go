@@ -15,9 +15,8 @@ import (
 
 func main() {
 	addr := getenv("VECTOR_INDEX_ADDR", ":8090")
-	embedURL := getenv("VECTOR_INDEX_EMBED_URL", vectorindex.DefaultEmbedURL)
-	embedModel := getenv("VECTOR_INDEX_EMBED_MODEL", vectorindex.DefaultEmbedModel)
 	categoriesFile := getenv("VECTOR_INDEX_CATEGORIES_FILE", "categories.txt")
+	provider := getenv("VECTOR_INDEX_EMBED_PROVIDER", "ollama") // "ollama" or "openai"
 
 	categories, err := vectorindex.ParseCategoriesFile(categoriesFile)
 	if err != nil {
@@ -25,7 +24,7 @@ func main() {
 	}
 	log.Printf("Loaded %d categories from %s", len(categories), categoriesFile)
 
-	embedder := vectorindex.NewEmbedClient(embedURL, embedModel)
+	embedder := buildEmbedder(provider)
 
 	ctx := context.Background()
 	categorizer, err := vectorindex.NewCategorizer(ctx, embedder, categories)
@@ -45,7 +44,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("Starting vector categorizer on %s (embed=%s model=%s)", addr, embedURL, embedModel)
+		log.Printf("Starting vector categorizer on %s (provider=%s)", addr, provider)
 		errCh <- srv.ListenAndServe()
 	}()
 
@@ -64,6 +63,26 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+func buildEmbedder(provider string) vectorindex.Embedder {
+	switch provider {
+	case "openai":
+		apiKey := os.Getenv("OPENAI_API_KEY")
+		if apiKey == "" {
+			log.Fatalf("OPENAI_API_KEY is required when VECTOR_INDEX_EMBED_PROVIDER=openai")
+		}
+		model := getenv("VECTOR_INDEX_EMBED_MODEL", vectorindex.DefaultOpenAIEmbedModel)
+		url := getenv("VECTOR_INDEX_EMBED_URL", vectorindex.DefaultOpenAIEmbedURL)
+		client := vectorindex.NewOpenAIEmbedClient(apiKey, model, url)
+		log.Printf("Using OpenAI embedder (url=%s model=%s)", client.URL, model)
+		return client
+	default: // "ollama"
+		url := getenv("VECTOR_INDEX_EMBED_URL", vectorindex.DefaultEmbedURL)
+		model := getenv("VECTOR_INDEX_EMBED_MODEL", vectorindex.DefaultEmbedModel)
+		log.Printf("Using Ollama embedder (url=%s model=%s)", url, model)
+		return vectorindex.NewEmbedClient(url, model)
+	}
 }
 
 func getenv(name, fallback string) string {
